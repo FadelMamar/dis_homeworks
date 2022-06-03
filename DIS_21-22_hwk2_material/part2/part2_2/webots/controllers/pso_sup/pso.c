@@ -23,7 +23,7 @@
 #else
 // TODO : Q 2.9 implement noise-resistant PSO
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-#define ITS_COEFF 0.5     // Multiplier for number of iterations
+#define ITS_COEFF 2.0     // Multiplier for number of iterations
 // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 #endif
