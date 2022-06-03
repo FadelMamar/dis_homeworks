@@ -1,0 +1,135 @@
+#VRML_SIM R2022a utf8
+WorldInfo {
+  info [
+    "Description"
+    "Author: first name last name <e-mail>"
+    "Date: DD MMM YYYY"
+  ]
+  contactProperties [
+    ContactProperties {
+      coulombFriction [
+        0.1
+      ]
+    }
+  ]
+}
+Viewpoint {
+  orientation -0.2465700712768734 -0.11437151280333034 0.9623525118217312 -2.274070225222081
+  position 1.238909157050851 3.187509788304461 2.0475916613221163
+}
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+RectangleArena {
+  rotation 0 0 1 1.5707963267948966
+  floorSize 10 10
+}
+DEF rob0 E-puck {
+  translation 0 0 0.005
+  name "e-puck_0"
+  controller "obs_con"
+  emitter_channel 2
+  turretSlot [
+    Receiver {
+      name "receiver_epuck"
+      channel 1
+    }
+    Emitter {
+      name "emitter_epuck"
+      channel 2
+    }
+  ]
+}
+DEF rob1 E-puck {
+  translation 0 -0.1 0.005
+  name "e-puck_1"
+  controller "obs_con"
+  emitter_channel 4
+  receiver_channel 3
+  turretSlot [
+    Receiver {
+      name "receiver_epuck"
+      channel 3
+    }
+    Emitter {
+      name "emitter_epuck"
+      channel 4
+    }
+  ]
+}
+DEF supervisor Robot {
+  children [
+    DEF emitter0 Emitter {
+      name "emitter0"
+      channel 1
+    }
+    DEF emitter1 Emitter {
+      name "emitter1"
+      channel 3
+    }
+    DEF receiver0 Receiver {
+      name "receiver0"
+      channel 2
+    }
+    DEF receiver1 Receiver {
+      name "receiver1"
+      channel 4
+    }
+  ]
+  name "supervisor"
+  controller "pso_sup"
+  supervisor TRUE
+}
+SolidBox {
+  translation -0.2572538880125297 0.6539539295950705 0
+  rotation 0 0 1 1.5707963220000003
+  name "wall2(4)"
+  size 1 0.1 0.1
+}
+SolidBox {
+  translation -0.7056755313705967 1.2034804135053754 0
+  name "wall2(3)"
+  size 1 0.1 0.1
+}
+SolidBox {
+  translation -0.6668333807262119 0.2123920246184831 0
+  rotation 0 0 1 4.712388966
+  name "wall1(1)"
+  size 1.1 0.1 0.1
+}
+SolidBox {
+  translation -1.2610543714217402 1.6545233012225282 0
+  rotation 0 0 1 4.712388966
+  name "wall2(2)"
+  size 1 0.1 0.1
+}
+SolidBox {
+  translation 0.32255391157230656 -0.03969244855106785 0
+  rotation 0 0 1 4.712388966000001
+  name "wall2(1)"
+  size 0.6 0.1 0.1
+}
+SolidBox {
+  translation -0.17780811597802085 -0.29356804107656587 0
+  rotation 0 0 1 3.141592644
+  name "wall2(6)"
+  size 0.9 0.1 0.1
+}
+SolidBox {
+  translation 0.023550315442634612 0.20433865476190535 0
+  rotation 0 0 1 3.141592644
+  name "wall2(5)"
+  size 0.5 0.1 0.1
+}
+SolidBox {
+  translation -1.1104419406184098 0.8048576911773211 0
+  name "wall1"
+  size 1 0.1 0.1
+}
+SolidBox {
+  translation -1.5545065877104596 1.5063790332722562 0
+  rotation 0 0 1 4.712388966
+  name "wall2"
+  size 1.3 0.1 0.1
+}
