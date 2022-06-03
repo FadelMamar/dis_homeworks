@@ -1,0 +1,11 @@
+Perfomance evaluation of the best controllers found by noise-resistant PSO for each run: 
+Average Performance of 1 run: 0.372612
+Average Performance of 2 run: 0.279077
+Average Performance of 3 run: 0.332566
+Average Performance of 4 run: 0.347883
+Average Performance of 5 run: 0.314881
+Average Performance of 6 run: 0.305636
+Average Performance of 7 run: 0.348891
+Average Performance of 8 run: 0.344614
+Average Performance of 9 run: 0.305684
+Average Performance of 10 run: 0.324898
