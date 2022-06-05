@@ -1,62 +1,73 @@
-/*****************************************************************************/
-/* File:         flocking_super.c                                            */
-/* Version:      1.0                                                         */
-/* Date:         10-Oct-14                                                   */
-/* Description:  Reynolds flocking control 				*/
-/*                                                                            */
-/* Author:       10-Oct-14 by Ali marjovi			           */
-/* Last revision: 10-March-22 by Kagan Erunsal			*/
-/*****************************************************************************/
-
 #include <stdio.h>
 #include <math.h>
+#include "pso.h"
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
-#include "pso.h"
 #include <webots/robot.h>
 #include <webots/emitter.h>
+#include <webots/receiver.h>
 #include <webots/supervisor.h>
 
-#define ROBOTS 5
+#define ROBOTS 5 						// Was previously 1
 #define MAX_ROB 5
 #define ROB_RAD 0.035
-#define ARENA_SIZE 1.89
-#define TIME_STEP 32
+#define ARENA_SIZE .15
+#define MAX_DIST 3.0
+#define SENSOR_RANGE 0.3
 
+#define TIME_STEP	32		// [ms] Length of time step
+
+#define NB_SENSOR 8                     // Number of proximity sensors
+
+/* PSO definitions */
 #define NB 1                            // Number of neighbors on each side
 #define LWEIGHT 2.0                     // Weight of attraction to personal best
 #define NBWEIGHT 2.0                    // Weight of attraction to neighborhood best
-#define VMAX 20.0                       // Maximum velocity particle can attain
-#define MININIT 0                   // Lower bound on initialization value
-#define MAXINIT 1.0                    // Upper bound on initialization value
-#define ITS 20                          // Number of iterations to run
-#define DATASIZE 4         // Number of elements in particle (2 Neurons with 8 proximity sensors 
+#define VMAX 40.0                       // Maximum velocity particle can attain
+#define MININIT 0.0                   // Lower bound on initialization value
+#define MAXINIT 0.1                    // Upper bound on initialization value
+#define ITS 50                          // Number of iterations to run
 
-/* Fitness definitions */
-#define FIT_ITS 180                     // Number of fitness steps to run during evolution
-
-#define FINALRUNS 10
-#define NEIGHBORHOOD STANDARD
-#define RADIUS 0.8
+/* Neighborhood types */
+#define STANDARD    -1
+#define RAND_NB      0
+#define NCLOSE_NB    1
+#define FIXEDRAD_NB  2
+#define MIGRATORY_URGE 1
 
 #include "../flock_param.h"
 #define MAX_SPEED_WEB      	6.28    // Maximum wheel speed webots
 #define WHEEL_RADIUS		0.0205	// Wheel radius (meters)
-#define TIME_STEP	32		// [ms] Length of time step
+
+/* Fitness definitions */
+#define FIT_ITS 2000                     // Number of fitness steps to run during evolution
+
+#define NOISY 1
+#define FINALRUNS 10
+#define NEIGHBORHOOD STANDARD
+#define RADIUS 0.8
+#define N_RUNS 10        // Change this to 10 for question 2.10
+
+#define PI 3.1415926535897932384626433832795
+enum {POS_X=0,POS_Y,POS_Z};
+
+static WbNodeRef robs[MAX_ROB];
+WbDeviceTag emitter[MAX_ROB];
+WbDeviceTag emitter_loc;
+WbDeviceTag rec[MAX_ROB];
+WbFieldRef robs_trans[ROBOTS];	// Robots translation fields
+WbFieldRef robs_rotation[ROBOTS];	// Robots rotation fields
+float loc[ROBOTS][3];		// Location and heading of everybody in the flock (x,y,heading)
+double initial_loc[MAX_ROB][3];
+double initial_rot[MAX_ROB][4];
+const double *location[MAX_ROB];
+const double *rot[MAX_ROB];
 
 
-WbNodeRef robs[FLOCK_SIZE];		// Robots nodes
-WbFieldRef robs_trans[FLOCK_SIZE];	// Robots translation fields
-WbFieldRef robs_rotation[FLOCK_SIZE];	// Robots rotation fields
-WbDeviceTag emitter_loc;			// Single emitter
-WbDeviceTag emitter_particles;
+static FILE *fp;
 
-float loc[FLOCK_SIZE][3];		// Location of everybody in the flock
 
-#define INTER_VEHICLE_COM 0 // Set 1 if there is intervehicle communication (not supported here)
-#define VERBOSE 0
-
+int reached = 0;
 float migrx = 0; 			// Migration component x
 float migry = -2.5;			// Migration component y
 float avg[2] = {0,0};
@@ -70,17 +81,59 @@ static const double destinations[][2] = {
 static int num_destination = sizeof(destinations)/sizeof(double)/2;
 int curr_dest = 0;
 
-/**
- * Multi migration targets for single flock case
- */
+void calc_fitness(double[][DATASIZE],double[],int,int);
+void random_pos(int);
+void nRandom(int[][SWARMSIZE],int);
+void nClosest(int[][SWARMSIZE],int);
+void fixedRadius(int[][SWARMSIZE],double);
+double robdist(int i, int j);
+double rob_orientation(int i);
+
+/* RESET - Get device handles and starting locations */
+void reset(void) {
+    // Device variables
+    char em[] = "emitter0";
+    int i;  //counter
+    char rob[8] = "epuck0";
+    
+    emitter_loc = wb_robot_get_device("emitter_loc");
+    if (emitter_loc==0) printf("missing emitter_loc\n");
+	
+    for (i=0;i<MAX_ROB;i++) {
+        sprintf(rob,"epuck%d",i);
+        robs[i] = wb_supervisor_node_get_from_def(rob);
+        robs_trans[i] = wb_supervisor_node_get_field(robs[i],"translation");
+        robs_rotation[i] = wb_supervisor_node_get_field(robs[i],"rotation");
+        location[i] = wb_supervisor_field_get_sf_vec3f(wb_supervisor_node_get_field(robs[i],"translation"));
+        initial_loc[i][0] = location[i][0]; initial_loc[i][1] = location[i][1]; initial_loc[i][2] = location[i][2];
+        rot[i] = wb_supervisor_field_get_sf_rotation(wb_supervisor_node_get_field(robs[i],"rotation"));
+        initial_rot[i][0] = rot[i][0]; initial_rot[i][1] = rot[i][1]; initial_rot[i][2] = rot[i][2]; initial_rot[i][3] = rot[i][3];
+        emitter[i] = wb_robot_get_device(em);
+        if (emitter[i]==0) printf("missing emitter %d\n",i);
+        rob[3]++;
+        em[7]++;
+        printf("%s",em);
+    }
+    if (NOISY == 0){
+        fp = fopen("PSO_evaluation.txt","w");
+        fprintf(fp, "Perfomance evaluation of the best controllers found by standard PSO for each run: \n");
+    } else {
+        fp = fopen("PSO_noise_resistant_evaluation.txt","w");
+        fprintf(fp, "Perfomance evaluation of the best controllers found by noise-resistant PSO for each run: \n");
+    }
+
+
+}
+
 void update_migration(){
 	
-	double center[2] = {0.,0.}; // flock center 
+	double center[2] = {0.,0.}; // flock center
+	 
 
-	for (int i=0;i<FLOCK_SIZE;i++) {
+	for (int i=0;i<ROBOTS;i++) {
 		// Get data
-		center[0] += wb_supervisor_field_get_sf_vec3f(robs_trans[i])[0]/FLOCK_SIZE; // X
-		center[1] += wb_supervisor_field_get_sf_vec3f(robs_trans[i])[1]/FLOCK_SIZE; // Y
+		center[0] += wb_supervisor_field_get_sf_vec3f(robs_trans[i])[0]/ROBOTS; // X
+		center[1] += wb_supervisor_field_get_sf_vec3f(robs_trans[i])[1]/ROBOTS; // Y
 	}
 	double distance = sqrt(pow(center[0]-migrx,2) + pow(center[1]-migry,2));
 	if(distance < .3){
@@ -89,7 +142,8 @@ void update_migration(){
 	}
 	if(curr_dest >= num_destination){
 		printf("All destinations are reached, stopping simulation\n"); 
-		wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_PAUSE);
+		//wb_supervisor_simulation_set_mode(WB_SUPERVISOR_SIMULATION_MODE_PAUSE);
+		reached = 1;
 	}
 	//printf("dist: %.2lf, migrx:%.2lf,migry:%.2lf,centery:%.2lf,centery:%.2lf,curr_dest:%d\n",distance,migrx, migry, center[0],center[1],curr_dest);
 
@@ -103,27 +157,59 @@ void update_migration(){
 	wb_supervisor_field_set_sf_vec3f(mig_trans,trans);
 }
 
-/*
- * Initialize flock position and devices
- */
-void reset(void) {
+/* MAIN - Distribute and test conctrollers */
+int main() {
+    double *weights;                         // Optimized result
+    int i,j,k;				     // Counter variables
 
-	wb_robot_init();
+    /* Initialisation */
+    wb_robot_init();
+    printf("Particle Swarm Optimization Super Controller\n");
+    reset();
 
-	emitter_loc = wb_robot_get_device("emitter_loc");
-	if (emitter_loc==0) printf("missing emitter_loc\n");
-	
-	emitter_particles = wb_robot_get_device("emitter_particles");
-	if (emitter_particles==0) printf("missing emitter_paticles\n");
-	
-	char rob[8] = "epuck0";
-	int i;
-	for (i=0;i<FLOCK_SIZE;i++) {
-		sprintf(rob,"epuck%d",i);
-		robs[i] = wb_supervisor_node_get_from_def(rob);
-		robs_trans[i] = wb_supervisor_node_get_field(robs[i],"translation");
-		robs_rotation[i] = wb_supervisor_node_get_field(robs[i],"rotation");
-	}
+    wb_robot_step(256);
+
+    double fit, w[ROBOTS][DATASIZE], f[ROBOTS];
+
+    
+    // Do N_RUNS runs and send the best controller found to the robot
+    for (j=0;j<N_RUNS;j++) {
+        printf("Start %d PSO run\n",j+1);
+        // Get result of optimization
+        weights = pso(SWARMSIZE,NB,LWEIGHT,NBWEIGHT,VMAX,MININIT,MAXINIT,ITS,DATASIZE,1);
+
+        // Set robot weights to optimization results
+        fit = 0.0;
+        for (i=0;i<ROBOTS;i++) {
+            for (k=0;k<DATASIZE;k++)
+              w[i][k] = weights[k];
+        }
+
+        // Run FINALRUN tests and calculate average
+        printf("Running final runs\n");
+        for (i=0;i<FINALRUNS;i+=ROBOTS) {
+            calc_fitness(w,f,FIT_ITS,ROBOTS);
+            for (k=0;k<ROBOTS && i+k<FINALRUNS;k++) {
+                //fitvals[i+k] = f[k];
+                fit += f[k];
+            }
+        }
+
+        fit /= FINALRUNS;  // average over the FINALRUNS runs
+        
+        printf("Average Performance of %d PSO run: %.3f\n",j+1,fit);
+        fprintf(fp, "Average Performance of %d run: %f\n", j+1, fit);
+
+    }
+    // Close the log file
+	if(fp != NULL)
+		fclose(fp);
+    /* Wait forever */
+    while (1){
+        calc_fitness(w,f,FIT_ITS,ROBOTS);
+    }
+
+    return 0;
 }
 
 
@@ -132,7 +218,7 @@ void send_poses(void) {
   	char buffer[255];	// Buffer for sending data
 	int i;
          
-	for (i=0;i<FLOCK_SIZE;i++) {
+	for (i=0;i<ROBOTS;i++) {
 		// Get data
 		loc[i][0] = wb_supervisor_field_get_sf_vec3f(robs_trans[i])[0]; // X
 		loc[i][1] = wb_supervisor_field_get_sf_vec3f(robs_trans[i])[1]; // Y
@@ -140,10 +226,11 @@ void send_poses(void) {
 		loc[i][2] = sign * wb_supervisor_field_get_sf_rotation(robs_rotation[i])[3]; // THETA
 
 		// Send it out
-		sprintf(buffer,"%d#%f#%f#%f##%f#%f",i,loc[i][0],loc[i][1],loc[i][2], migrx, migry);
+        	sprintf(buffer,"%d#%f#%f#%f##%f#%f",i,loc[i][0],loc[i][1],loc[i][2], migrx, migry);
 		wb_emitter_send(emitter_loc,buffer,strlen(buffer));
 	}
 }
+
 
 double compute_flocking_fitness(){
         
@@ -159,39 +246,39 @@ double compute_flocking_fitness(){
        	old_avg[0] = avg[0];
        	old_avg[1] = avg[1];
        	
+       
+       	
        	avg[0] = 0;
        avg[1] = 0;
 	// To Do : Compute orientation performance 
 
 	
-	for(int i=0; i<FLOCK_SIZE; i++) {
+	for(int i=0; i<ROBOTS; i++) {
 		complexe_O[0] += cosf(fabs(loc[i][2]));
 		complexe_O[1] += sinf(fabs(loc[i][2]));
 	}
+	o = sqrt(powf(complexe_O[0],2) + pow(complexe_O[1],2))/ROBOTS;
 	
-	o = sqrt(powf(complexe_O[0],2) + pow(complexe_O[1],2))/FLOCK_SIZE;
-	//printf("o: %f\n", o);
 
 
 	// To Do : Compute distance performance 
 	double d = 0;
 	
-	for(i=0; i<FLOCK_SIZE; i++){ 
-        	avg[0] += loc[i][0]/FLOCK_SIZE;
-        	avg[1] += loc[i][1]/FLOCK_SIZE;}
+	for(i=0; i<ROBOTS; i++){ 
+        	avg[0] += loc[i][0]/ROBOTS;
+        	avg[1] += loc[i][1]/ROBOTS;}
 
 	 
-	for(i=0; i<FLOCK_SIZE; i++){ 
+	for(i=0; i<ROBOTS; i++){ 
         	d += fabs(sqrt(pow(loc[i][0]-avg[0],2)+pow(loc[i][1]-avg[1],2))-RULE1_THRESHOLD);}
-        d /= FLOCK_SIZE;
+        d /= ROBOTS;
         d += 1;
         d = 1/d;
-        //printf("d: %f\n", d);
         
 
 
 	// To Do : Compute velocity performance (if migratory urge enabled)
-	double v = 1.;
+	double v = 0.;
 	
 	if(MIGRATORY_URGE){
 
@@ -202,46 +289,91 @@ double compute_flocking_fitness(){
 		vector_migr[1] = migry - avg[1];
               
 		migr_norm = sqrt(pow(vector_migr[0],2) + pow(vector_migr[1],2));
-		
+			
 		proj = (vector_migr[0]*avg_speed[0] + vector_migr[1]*avg_speed[1])/migr_norm;
 		v = fmax(proj,0);
+		
 		v = v/(MAX_SPEED_WEB* WHEEL_RADIUS);
 		
-	}else {
+	}else 
 	
-		v = 1.;}
-       v = 1.;
-	//printf("v: %f\n", v);
-	return (o)*(d)*(v);
+		v = 1.;
+
+
+	return (o)+(d)+(10*v);
 }
-// Distribute fitness functions among robots
+
+void re_pos(int rob_id) {
+
+
+    wb_supervisor_field_set_sf_vec3f(wb_supervisor_node_get_field(robs[rob_id],"translation"), initial_loc[rob_id]);
+    wb_supervisor_field_set_sf_rotation(wb_supervisor_node_get_field(robs[rob_id],"rotation"), initial_rot[rob_id]);
+}
+
 void calc_fitness(double weights[ROBOTS][DATASIZE], double fit[ROBOTS], int its, int numRobs) {
-  double buffer[255];
-  int i,j;
+    double buffer[255];
+    int i,j;
+    double flock_fit = 0.0;
+    char label[255];
+    int iteration = 0;
+    double avg = 0;
+    int t = its;
 
-  /* Send data to robots */
-  for (i=0;i<numRobs;i++) {
-    //random_pos(i);
-    for (j=0;j<DATASIZE;j++) {
-      buffer[j] = weights[i][j];
+
+   /* Send data to robots */
+    for (i=0;i<numRobs;i++) {
+       re_pos(i);
+       for (j=0;j<DATASIZE;j++) {
+	buffer[j] = weights[0][j];
+       }
+       //printf("send %f\n", buffer[0]);
+       
+       wb_emitter_send(emitter[i],(void *)buffer,(DATASIZE)*sizeof(double));
     }
-  }
 
-  wb_emitter_send(emitter_particles, (void *)buffer,(DATASIZE)*sizeof(double));
+    wb_supervisor_simulation_reset_physics();
+    
 
-  for (i=0;i<numRobs;i++) {
-    fit[i] = compute_flocking_fitness();
-  }
+    while (t>0){
+      
+      update_migration();
+			
+      send_poses();
+		
+      flock_fit = compute_flocking_fitness();
+      
+      avg += flock_fit;
+     
+      
+      t--;
+      
+      wb_robot_step(32);
+      }
+		//printf("flock_fit %f\n",flock_fit);
+		
+		//iteration++;
+		
+		//avg += flock_fit;
+		
+		//if (reached == 1){break;}
+		//}
+    
+    avg /= its;
+    //reached = 0;
+    //calculate fitness here
+    for (i=0;i<numRobs;i++) {
+      fit[i] = flock_fit;}
+
+    // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+  sprintf(label,"Last fitness: %.3f\n",fit[0]);
+  printf(label,"Last fitness: %.3f\n",fit[0]);
+  wb_supervisor_set_label(2,label,0.01,0.95,0.05,0xffffff,0,FONT);
 }
-
-
-/*
- * Main function.
- */
 
 /* Optimization fitness function , used in pso.c */
 /************************************************************************************/
-/* Use the NEIGHBORHOOD definition at the top of this file to                        */
+/* Use the NEIHBORHOOD definition at the top of this file to                        */
 /* change the neighborhood type for the PSO. The possible values are:               */
 /* STANDARD    : Local neighborhood with 2*NB (defined above) nearest neighbors     */
 /*               NEIGHBORHOOD is set to STANDARD by default                         */
@@ -250,69 +382,117 @@ void calc_fitness(double weights[ROBOTS][DATASIZE], double fit[ROBOTS], int its,
 /* FIXEDRAD_NB : All robots within a defined radius are neighbors                   */
 /************************************************************************************/
 void fitness(double weights[ROBOTS][DATASIZE], double fit[ROBOTS], int neighbors[SWARMSIZE][SWARMSIZE]) {
-  calc_fitness(weights,fit,FIT_ITS,ROBOTS);
+    calc_fitness(weights,fit,FIT_ITS,ROBOTS);
+#if NEIGHBORHOOD == RAND_NB
+    nRandom(neighbors,2*NB);
+#endif
+#if NEIGHBORHOOD == NCLOSE_NB
+    nClosest(neighbors,2*NB);
+#endif
+#if NEIGHBORHOOD == FIXEDRAD_NB
+    fixedRadius(neighbors,RADIUS);
+#endif
 }
 
-int main(int argc, char *args[]) {
-      //double weights[4] = {0,1,2,3};
-      double fit; 				// Fitness of the current FINALRUN
-      double endfit; 			// Best fitness over 10 runs
-      double fitvals[FINALRUNS]; 		// Fitness values for final tests
-      double w[MAX_ROB][DATASIZE]; 		// Weights to be send to robots (determined by pso() )
-      double f[MAX_ROB];			// Evaluated fitness (modified by calc_fitness() )
-      double bestfit, bestw[DATASIZE];	// Best fitness and weights
-      char outbuffer[255];
-      double *weights;
-      reset();
-	
-	send_poses();
-	
-	weights = pso(SWARMSIZE,NB,LWEIGHT,NBWEIGHT,VMAX,MININIT,MAXINIT,ITS,DATASIZE,ROBOTS);
-       
-       sprintf(outbuffer,"%f#%f#%f#%f",weights[0], weights[1],weights[2], weights[3]);
-       printf("%s",outbuffer);
-       wb_emitter_send(emitter_particles, outbuffer,strlen(outbuffer));
-	
-	printf("weights_send: %f\n",weights[0]);
-	printf("weights_send: %f\n",weights[1]);
-	printf("weights_send: %f\n",weights[2]);
-	printf("weights_send: %f\n",weights[3]);
-	 /*	
-	for(;;) {
+/* Get distance between robots */
+double robdist(int i, int j) {
+    return sqrt(pow(loc[i][0]-loc[j][0],2) + pow(loc[i][1]-loc[j][1],2));
+}
 
-		wb_robot_step(TIME_STEP);
+/* Choose n random neighbors */
+void nRandom(int neighbors[SWARMSIZE][SWARMSIZE], int numNB) {
 
-		update_migration();
-			
-		send_poses();
+    int i,j;
 
-             
-		fit = 0.0;
-	for (int i=0;i<MAX_ROB;i++) {
-          for (int k=0;k<DATASIZE;k++)
-              w[i][k] = weights[k];
-       }
-	
-              
-              for (int i=0;i<FINALRUNS;i+=MAX_ROB) {
-                  printf("f: %f\n",compute_flocking_fitness());
-                  calc_fitness(w,f,FIT_ITS,MAX_ROB);
-                  for (int k=0;k<MAX_ROB && i+k<FINALRUNS;k++) {
-                    fitvals[i+k] = f[k];
-                    fit += f[k];
-                  }
-              }
-              
-              fit /= FINALRUNS;
-              
-              if (fit > bestfit) {
-                bestfit = fit;
-                for (int i = 0; i < DATASIZE; i++){
-        	       bestw[i] = weights[i];}
-        	    
-              }
+    /* Get neighbors for each robot */
+    for (i = 0; i < ROBOTS; i++) {
 
-    endfit += fit/10; // average over the 10 runs
-*/	
+        /* Clear old neighbors */
+        for (j = 0; j < ROBOTS; j++)
+        	neighbors[i][j] = 0;
+
+        /* Set new neighbors randomly */
+        for (j = 0; j < numNB; j++)
+        	neighbors[i][(int)(SWARMSIZE*rnd())] = 1;
+
+    }
+}
+
+/* Choose the n closest robots */
+void nClosest(int neighbors[SWARMSIZE][SWARMSIZE], int numNB) {
+
+    int r[numNB];
+    int tempRob;
+    double dist[numNB];
+    double tempDist;
+    int i,j,k;
+
+    /* Get neighbors for each robot */
+    for (i = 0; i < ROBOTS; i++) {
+
+        /* Clear neighbors */
+        for (j = 0; j < numNB; j++)
+        dist[j] = ARENA_SIZE;
+
+        /* Find closest robots */
+        for (j = 0; j < ROBOTS; j++) {
+
+            /* Don't use self */
+            if (i == j) continue;
+
+            /* Check if smaller distance */
+            if (dist[numNB-1] > robdist(i,j)) {
+                dist[numNB-1] = robdist(i,j);
+                r[numNB-1] = j;
+
+                /* Move new distance to proper place */
+                for (k = numNB-1; k > 0 && dist[k-1] > dist[k]; k--) {
+
+                    tempDist = dist[k];
+                    dist[k] = dist[k-1];
+                    dist[k-1] = tempDist;
+                    tempRob = r[k];
+                    r[k] = r[k-1];
+                    r[k-1] = tempRob;
+
+                }
+            }
+
+        }
+
+        /* Update neighbor table */
+        for (j = 0; j < ROBOTS; j++)
+        neighbors[i][j] = 0;
+        for (j = 0; j < numNB; j++)
+        neighbors[i][r[j]] = 1;
+
+    }
 
 }
+
+/* Choose all robots within some range */
+void fixedRadius(int neighbors[SWARMSIZE][SWARMSIZE], double radius) {
+
+    int i,j;
+
+    /* Get neighbors for each robot */
+    for (i = 0; i < ROBOTS; i++) {
+
+        /* Find robots within range */
+        for (j = 0; j < ROBOTS; j++) {
+
+            if (i == j) continue;
+
+            if (robdist(i,j) < radius) neighbors[i][j] = 1;
+            else neighbors[i][j] = 0;
+
+        }
+
+    }
+
+}
+
+void step_rob() {
+    wb_robot_step(64);
+}
+

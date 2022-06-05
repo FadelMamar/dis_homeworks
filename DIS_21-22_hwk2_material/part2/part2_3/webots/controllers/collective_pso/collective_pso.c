@@ -36,16 +36,16 @@
 
 #define VERBOSE 			0
 
+#define NEIGHBOURHOOD 0
+
 #define ABS(x) ((x>=0)?(x):-(x))
 
-#define NB_SENSOR 8 // Number of proximity sensorsw
 
 WbDeviceTag left_motor; 	// Handle for left wheel of the robot
 WbDeviceTag right_motor; 	// Handle for the right wheel of the robot
 WbDeviceTag ds[NB_SENSORS];	// Handle for the infrared distance sensors
-WbDeviceTag receiver;		// Handle for the receiver node
-WbDeviceTag emitter;		// Handle for the emitter node
-WbDeviceTag receiver_epuck;	
+WbDeviceTag rec;		// Handle for the receiver node
+WbDeviceTag receiver;
 
 
 int robot_id_u, robot_id;		// Unique and normalized (between 0 and FLOCK_SIZE-1), robot ID
@@ -55,22 +55,18 @@ float speed[FLOCK_SIZE][2];		// Speeds calculated with Reynold's rules
 int initialized[FLOCK_SIZE];	// != 0 if initial positions have been received
 float migr[2];	                // Migration vector
 
-
-WbDeviceTag rec;
-
 double default_reynolds_weights[4] = {0.06, 0.002, 0.1, 0.05}; 
 /*
  * Reset the robot's devices and get its ID
  *
  */
-/*
+
 static void reset() {
 	
 	wb_robot_init();
 
-	receiver = wb_robot_get_device("receiver");
-	emitter = wb_robot_get_device("emitter");
 	rec = wb_robot_get_device("receiver_epuck");
+	receiver = wb_robot_get_device("receiver");
 	
 	//get motors
 	left_motor = wb_robot_get_device("left wheel motor");
@@ -82,7 +78,7 @@ static void reset() {
 	char s[4]="ps0";
 	for(i=0; i<NB_SENSORS;i++) {
 		ds[i]=wb_robot_get_device(s);	// the device name is specified in the world file
-      		s[2]++;				// increases the device number
+		s[2]++;				// increases the device number
 	}
 	char* robot_name; 
 	robot_name=(char*) wb_robot_get_name(); 
@@ -90,7 +86,8 @@ static void reset() {
 	for(i=0;i<NB_SENSORS;i++) {
 		wb_distance_sensor_enable(ds[i],64); // limit update frequency
 	}
-	wb_receiver_enable(receiver,64); // limit update frequency
+	wb_receiver_enable(rec,64); // limit update frequency
+	wb_receiver_enable(receiver,64);
 
 	//Reading the robot's name. Pay attention to name specification when adding robots to the simulation!
 	sscanf(robot_name,"epuck%d",&robot_id_u); // read robot id from the robot's name
@@ -117,25 +114,7 @@ static void reset() {
 
 	printf("Reset: robot %d\n",robot_id_u);
 }
-*/
-void reset(void) {
-    char text[4];
-    int i;
-    text[1]='s';
-    text[3]='\0';
-    for (i=0;i<NB_SENSOR;i++) {
-        text[0]='p';
-        text[2]='0'+i;
-        ds[i] = wb_robot_get_device(text); // distance sensors
-    }
 
-    rec = wb_robot_get_device("receiver_epuck");
-    
-    left_motor = wb_robot_get_device("left wheel motor");
-    right_motor = wb_robot_get_device("right wheel motor");
-    wb_motor_set_position(left_motor, INFINITY);
-    wb_motor_set_position(right_motor, INFINITY);
-}
 /*
  * Keep given float number within interval {-limit, limit}
  */
@@ -290,6 +269,7 @@ void reynolds_rules(double reynolds_weights[4]) {
 		}
 	}
 	
+	
 	/* Reynold's rules */
 	
 	/* Rule 1 - Aggregation/Cohesion: move towards the center of mass */
@@ -301,7 +281,7 @@ void reynolds_rules(double reynolds_weights[4]) {
          }
 
 	/* Rule 2 - Dispersion/Separation: keep far enough from flockmates */
-    for (k=0;k<FLOCK_SIZE;k++) {
+        for (k=0;k<FLOCK_SIZE;k++) {
 		if (k != robot_id) {        // Loop on flockmates only
 			// If neighbor k is too close (Euclidean distance)
 			if (pow(loc[robot_id][0]-loc[k][0],2)+pow(loc[robot_id][1]-loc[k][1],2) < RULE2_THRESHOLD) {
@@ -417,48 +397,50 @@ int main(){
 	float wsl, wsr;			// Wheel speed left and right 
 	double ws_reyn[2]  = {0.,0.}; 	// Wheel speed computed with reynolds 
 	double ws_brait[2] = {0.,0.}; 	// Wheel speed computed with braitenberg 
-	bool avoid; 				// Whether avoidance is required 
-       float n1,n2,n3,n4;   // Robot position and orientation
-	char *inbuffer;					// Buffer for the receiver node
-        
-       wb_robot_init();
- 	reset();
+	bool avoid;				// Whether avoidance is required 
+	double *rbuffer;
+ 	double r1,r2,r3,r4;
  	
- 	for(int i=0;i<NB_SENSOR;i++) {
-          wb_distance_sensor_enable(ds[i],64);}
-       
-       wb_receiver_enable(rec,32);
- 							// Resetting the robot
- 	while (wb_receiver_get_queue_length(rec) == 0){
-         	wb_robot_step(64);}
-         	
-       inbuffer = (char*)wb_receiver_get_data(rec);
-       printf("%s", inbuffer);
-       sscanf(inbuffer,"%f#%f#%f#%f",n1,&n2,&n3,&n4);
-
-       wb_receiver_next_packet(rec);
-      
-       	printf("weights_received: %f\n", n1);
-	printf("weights_received: %f\n", n2);
-	printf("weights_received: %f\n", n3);
-	printf("weights_received: %f\n", n4);
-	printf("------\n"); 
-       	//wb_receiver_next_packet(rec);
-	/*
+ 	 wb_robot_init();
+        reset();
+        for(int i=0;i<NB_SENSORS;i++) {
+            wb_distance_sensor_enable(ds[i],64);
+        }
+        wb_receiver_enable(rec,32);
+        //wb_differential_wheels_enable_encoders(64);
+ 	
+        while (wb_receiver_get_queue_length(rec) == 0) {
+                  wb_robot_step(64);}
+              
+        rbuffer = (double *)wb_receiver_get_data(rec);
+              
+        r1 = rbuffer[0];
+        r2 = rbuffer[1];
+        r3 = rbuffer[2];
+        r4 = rbuffer[3];
+        
+        double pso_weights[4] = {r1, r2, r3, r4}; 
+	
 	// Forever
 	for(;;){
-
-		/* Get information
+                          
+		/* Get information */
 		get_robot_positions();
-              
+		
+		//printf("location %f\n",loc[0][0]);
+
 		// Reynold's rules with all previous info (updates the speed[robot_id][] table)
-		reynolds_rules(default_reynolds_weights);
+		reynolds_rules(pso_weights);
 
 		// Compute wheels speed from Reynold's speed
 		compute_wheel_speeds(&ws_reyn[0], &ws_reyn[1]);
+		
+		//printf("reynoldsleft %f\n",ws_reyn[0]);
 
 		// Add Braitenberg
 		compute_braitenberg_speed(&ws_brait[0], &ws_brait[1], &avoid);
+		
+		//printf("braitenleft %f\n",ws_brait[0]);
 
 		// Compute wheel velocities 
 		if(avoid){
@@ -472,21 +454,21 @@ int main(){
 			wsr = ws_reyn[1];
 		}
 		
+		
 		// Set speeds 
 		limitf(&wsl, MAX_SPEED_WEB);
 		limitf(&wsr, MAX_SPEED_WEB);
+		
+		//printf("leftspeed %f\n",wsl);
+		
 		wb_motor_set_velocity(left_motor, wsl); 
 		wb_motor_set_velocity(right_motor, wsr);
 
-		// Send current position to neighbors, uncomment for I15, don't forget to add the declaration of "outbuffer" at the begining of this function.
-		/*Implement your code here
-		if (INTER_VEHICLE_COM) {
-			sprintf(outbuffer,"%1d#%f#%f#%f",robot_id,loc[robot_id][0],loc[robot_id][1], loc[robot_id][2]);
-			wb_emitter_send(emitter,outbuffer,strlen(outbuffer));
-		}
 
 		// Continue one step
 		wb_robot_step(TIME_STEP);
-	}*/
-} 
+		
+		wb_receiver_next_packet(rec);
+	}
+}  
 

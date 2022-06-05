@@ -10,7 +10,7 @@
 
 #define NB_SENSOR 8
 #define DATASIZE 4
-#define SWARMSIZE 10
+#define SWARMSIZE 5
 
 // Functions
 double* pso(int,int,double,double,double,double,double,int,int,int); // Run particle swarm optimization
