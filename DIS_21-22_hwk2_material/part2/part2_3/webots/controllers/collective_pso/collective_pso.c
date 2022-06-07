@@ -400,6 +400,8 @@ int main(){
 	bool avoid;				// Whether avoidance is required 
 	double *rbuffer;
  	double r1,r2,r3,r4;
+ 	double pso_weights[4];
+ 	
  	
  	 wb_robot_init();
         reset();
@@ -409,22 +411,12 @@ int main(){
         wb_receiver_enable(rec,32);
         //wb_differential_wheels_enable_encoders(64);
  	
-        while (wb_receiver_get_queue_length(rec) == 0) {
-                  wb_robot_step(64);}
-              
-        rbuffer = (double *)wb_receiver_get_data(rec);
-              
-        r1 = rbuffer[0];
-        r2 = rbuffer[1];
-        r3 = rbuffer[2];
-        r4 = rbuffer[3];
-        
-        double pso_weights[4] = {r1, r2, r3, r4}; 
+
 	
 	// Forever
 	for(;;){
-                          
-		/* Get information */
+                     while (wb_receiver_get_queue_length(rec) == 0) {
+                      		/* Get information */
 		get_robot_positions();
 		
 		//printf("location %f\n",loc[0][0]);
@@ -467,7 +459,18 @@ int main(){
 
 		// Continue one step
 		wb_robot_step(TIME_STEP);
-		
+                      
+                      }
+                      
+                      rbuffer = (double *)wb_receiver_get_data(rec);
+            
+                      r1 = rbuffer[0];
+                      r2 = rbuffer[1];
+                      r3 = rbuffer[2];
+                      r4 = rbuffer[3];
+        
+                      pso_weights[0] = r1;  pso_weights[1] = r2;pso_weights[2] = r3;  pso_weights[3] = r4;
+                          
 		wb_receiver_next_packet(rec);
 	}
 }  
