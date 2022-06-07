@@ -15,6 +15,8 @@
 #include <webots/emitter.h>
 #include <webots/motor.h>
 #include <math.h>
+//Include time.h t0 generate random speed.
+#include <time.h>
 
 //Gloabal defines
 #define MAX_SPEED_WEB      6.28        // Maximum speed webots
@@ -29,7 +31,7 @@
 #define TO_REL              200        // Counter timeour for releasing transition
 #define TO_OA               200        // Counter timeout for obstacle avoidance
 #define TO_SEARCH           200        // Counter timeout for search
-#define ENB_LOG               0        // Enable it to see the logs
+#define ENB_LOG             0        // Enable it to see the logs
 #define FAIL                 99        // Failed message coming from supervisor
 
 //Gloabl variables
@@ -102,7 +104,30 @@ void read_distance_sensors() {
 //Obstacle avoidance behaviour
 void perform_obstacle_avoidance() {
 //TODO
-
+  static double l_weight[NB_SENSORS] = {-1, -0.75, -0.2, 0, 0, 0.2, 0.75, 1};
+  static double r_weight[NB_SENSORS] = {1, 0.75, 0.2, 0, 0, -0.2, -0.75, -1};
+  
+  double left_speed, right_speed;
+  
+  for (int i = 0; i < NB_SENSORS; i++)
+  {
+    right_speed += (r_weight[i]) * ds[i];
+    left_speed += (l_weight[i]) * ds[i];
+  }
+  
+  double val = abs(ds[7] - ds[0]);
+  
+  
+  if (val < 200 && ds[0] > 0){
+  
+  left_speed = 100; // left  wheel velocity in rad/s
+  right_speed = -100; // right wheel velocity in rad/s
+  
+  }
+  
+  msl_w = left_speed*MAX_SPEED_WEB/1000;
+  msr_w = right_speed*MAX_SPEED_WEB/1000;
+  counter++;
 }
 
 // Send query to supervisor about gripping and releasing
@@ -152,13 +177,50 @@ void limit_speeds() {
 // Detect big and small objects
 void identify_object() {
 // TODO
-
+  int num_detected = 0;
+  int final_activated_sensor = 0;
+  for (int sensor_nb = 0;sensor_nb < NB_SENSORS;sensor_nb++) {  // read sensor values
+      if (distances[sensor_nb] > THR_DIST_SENS_CRIT) {
+        num_detected++;
+        final_activated_sensor = sensor_nb;
+        for (int j=0; j<sensor_nb; j++) {
+          if (distances[j] > 150) {
+            num_detected++;
+          }
+        }
+        for (int k=sensor_nb+1; k<NB_SENSORS; k++) {
+          if (distances[k] > 150) {
+            num_detected++;
+          }
+        }
+      }
+  }
+  // printf("***num_detected: %d***\n", num_detected);
+  if (num_detected == 0) {obj_type = 0;}
+  else if (num_detected == 1) {
+    obj_type = 1;
+    detected_ps = final_activated_sensor;
+  }
+  else {obj_type = 2;}
+  counter++;
 }
 
 // Basic search behaviour with timeout
 void search() {
 //TODO
-
+  srand((unsigned)(time(NULL)));
+  int const_speed = 800;
+  int rand_num[5];
+  for (int i=0; i<5; i++){
+    rand_num[i] = rand();
+  }
+  for (int j=0; j<5; j++) {
+    if (robot_id == j) {
+        msl = rand_num[j] % MAX_SPEED;
+      }
+   }
+  msr = const_speed - msl;
+  counter++;
 }
 
 // Just wait with timeout
@@ -167,19 +229,20 @@ void wait() {
   msl = 0;
   msr = 0;
   counter++;
-
 }
 
 // Send release message to supervisor
 void release_seed() {
 //TODO
-
+  query = 0;
+  emit_message_to_supervisor(robot_id, query, detected_ps);
 }
 
 // Send grip message to supervisor
 void grip_seed() {
 //TODO
-
+  query = 1;
+  emit_message_to_supervisor(robot_id, query, detected_ps);
 }
 
 // All FSM is implemented here
@@ -332,7 +395,6 @@ void print_logs_on_console() {
   printf("State: %d\n", state);
   printf("Query: %d\n",query);
   printf("Decision: %d\n", decision);
-
 }
 
 //Simple main loop
