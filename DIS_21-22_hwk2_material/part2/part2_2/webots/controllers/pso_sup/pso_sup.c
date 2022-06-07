@@ -238,6 +238,8 @@ void calc_fitness(double weights[ROBOTS][DATASIZE], double fit[ROBOTS], int its,
     double maze_endpoint[3] = {-1.39679, 2.19582,0.001};
     fit[0] = 1/(1+sqrt(pow(loc[0][0]-maze_endpoint[0],2)+pow(loc[0][1]-maze_endpoint[1],2)));
     fit[1] = 1/(1+sqrt(pow(loc[1][0]-maze_endpoint[0],2)+pow(loc[1][1]-maze_endpoint[1],2)));
+    fit[0] = fit[0]*rbuffer[0];
+    fit[1] = fit[1]*rbuffer[1];
     // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
   sprintf(label,"Last fitness: %.3f\n",fit[0]);

@@ -11,7 +11,7 @@
 #define NB_SENSOR 8
 #define DATASIZE (1*(2*NB_SENSOR+6)) // datasize has decreased by half
 #define SWARMSIZE 20
-#define NOISY 0     // 0 for standard PSO and 1 for noise-resistant PSO
+#define NOISY 1     // 0 for standard PSO and 1 for noise-resistant PSO
 
 
 
