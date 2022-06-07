@@ -39,11 +39,12 @@ NC = zeros(k_sim,1); % Number of clusters
 ACS = zeros(k_sim,1); % Average size of the clusters
 SBC = zeros(k_sim,1); % Size of the biggest cluster
 SC = zeros(k_sim,1); % Sanity check
-p_dec =@(k,n) Ts*(alpha_dec(n)/180).*(Ncn(k,n)*vr*ds/Aa) ;
-p_inc =@(k,n) Ts*(alpha_inc(n)/180).*(Ncn(k,n)*vr*ds/Aa) ;
-
-p_3 = (vr*Ts/(da-2*rs)) + (Nr-1)*(2*rs+dr)*vr/Aa;
-p_4 = p_3 + Ns*(2*rs+seed_diameter)*vr/Aa;
+p_dec =@(k,n,Ncn) Ts*(alpha_dec(n)/180).*(Ncn(k,n)*vr*ds/Aa) ;
+p_inc =@(k,n,Ncn) Ts*(alpha_inc(n)/180).*(Ncn(k,n)*vr*ds/Aa) ;
+p_1 =@(k,Ncn) dot(p_dec(k,(1:Ns),Ncn),Ncn(k,1:Ns,1));
+p_2 =@(k,Ncn) dot(p_inc(k,(1:Ns),Ncn),Ncn(k,1:Ns,1));
+p_3 = (vr*Ts/(da-2*rs)) + (Nr-1)*(2*rs+dr)*vr/Aa + (2*Ns*(2*rs+seed_diameter)*vr)/(3*Aa);
+p_4 = p_3; 
 
 % Initialize variables
 Wsf(Td_max) = Wsf0;
@@ -60,27 +61,26 @@ SBC(Td_max) = 0;
 % Perform the simulation
 for k = Td_max:k_sim
     
-    Ncn(k+1,1) = Ncn(k,1) + Wsf(k-Trg)*(p_dec(k-Trg,1+1)*Ncn(k-Trg,1+1) - p_dec(k-Trg,1)*Ncn(k-Trg,1)) + ...
-               Wsl(k-Trg)*(0.0 - p_inc(k-Trg,1)*Ncn(k-Trg,1)); 
-    for n=2:Ns-1 
-           Ncn(k+1,n) = Ncn(k,n) + Wsf(k-Trg)*(p_dec(k-Trg,n+1)*Ncn(k-Trg,n+1) - p_dec(k-Trg,n)*Ncn(k-Trg,n)) + ...
-               Wsl(k-Trg)*(p_inc(k-Trg,n-1)*Ncn(k-Trg,n-1) - p_inc(k-Trg,n)*Ncn(k-Trg,n));                 
+    Ncn(k+1,1) = Ncn(k,1) + Wsf(k-Trg)*(p_dec(k-Trg,1+1,Ncn)*Ncn(k-Trg,1+1) - p_dec(k-Trg,1,Ncn)*Ncn(k-Trg,1)) + ...
+               Wsl(k-Trg)*(0.0 - p_inc(k-Trg,1,Ncn)*Ncn(k-Trg,1)); 
+    for n=2:Ns-1
+           Ncn(k+1,n) = Ncn(k,n) + Wsf(k-Trg)*(p_dec(k-Trg,n+1,Ncn)*Ncn(k-Trg,n+1) - p_dec(k-Trg,n,Ncn)*Ncn(k-Trg,n)) + ...
+               Wsl(k-Trg)*(p_inc(k-Trg,n-1,Ncn)*Ncn(k-Trg,n-1) - p_inc(k-Trg,n,Ncn)*Ncn(k-Trg,n));                 
     end
-    
-    p_1 =@(k) dot(p_dec(k,(1:Ns)),Ncn(k,1:Ns,1));
-    p_2 =@(k) dot(p_inc(k,(1:Ns)),Ncn(k,1:Ns,1));
-    
+    n=Ns;
+    Ncn(k+1,n) = Ncn(k,n) + Wsf(k-Trg)*(0.0 - p_dec(k-Trg,n,Ncn)*Ncn(k-Trg,n)) + ...
+               Wsl(k-Trg)*(p_inc(k-Trg,n-1,Ncn)*Ncn(k-Trg,n-1) - 0.0); 
     %--
     Wof(k+1) = Wof(k) + p_3*Wsf(k)    - p_3*Wsf(k-Toa)*(k-Toa>0);
     Wol(k+1) = Wol(k) + p_4*Wsl(k)    - p_4*Wsl(k-Toa)*(k-Toa>0);
-    Wr(k+1)  = Wr(k)  + p_2(k)*Wsl(k) - p_2(k-Trg)*Wsl(k-Trg)*(k-Trg>0);
-    Wg(k+1)  = Wg(k)  + p_1(k)*Wsf(k) - p_1(k-Trg)*Wsf(k-Trg)*(k-Trg>0);
-    Wsl(k+1) = Wsl(k)*(1-p_2(k)-p_4) + p_1(k-Trg)*Wsf(k-Trg)*(k-Trg>0)+ p_4*Wsl(k-Toa)*(k-Toa>0);
-    Wsf(k+1) = Wsf(k)*(1-p_1(k)-p_3) + p_2(k-Trg)*Wsl(k-Trg)*(k-Trg>0) + p_3*Wsf(k-Toa)*(k-Toa>0);
+    Wr(k+1)  = Wr(k)  + p_2(k,Ncn)*Wsl(k) - p_2(k-Trg,Ncn)*Wsl(k-Trg);
+    Wg(k+1)  = Wg(k)  + p_1(k,Ncn)*Wsf(k) - p_1(k-Trg,Ncn)*Wsf(k-Trg);
+    Wsl(k+1) = Wsl(k)*(1-p_2(k,Ncn)-p_4) + p_1(k-Trg,Ncn)*Wsf(k-Trg)+ p_4*Wsl(k-Toa);
+    Wsf(k+1) = Wsf(k)*(1-p_1(k,Ncn)-p_3) + p_2(k-Trg,Ncn)*Wsl(k-Trg)+ p_3*Wsf(k-Toa);
     
-    disp('-------'); disp(k);
-    [Wof(k), Wol(k), Wr(k), Wg(k),Wsl(k),Wsf(k)]
-    [Wof(k+1), Wol(k+1), Wr(k+1), Wg(k+1),Wsl(k+1),Wsf(k+1)]
+    %disp('-------'); disp(k);
+    %[Wof(k), Wol(k), Wr(k), Wg(k),Wsl(k),Wsf(k)]
+    %[Wof(k+1), Wol(k+1), Wr(k+1), Wg(k+1),Wsl(k+1),Wsf(k+1)]
     
     %--
     NC(k)  = sum(Ncn(k,:));
