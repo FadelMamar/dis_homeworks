@@ -7,7 +7,7 @@
 /*                                                */
 /**************************************************/
 
-#define VERBOSE 0
+#define VERBOSE 1
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,12 +17,15 @@
 
 #include "pso.h"
 
-#define NOISY 0
 
 #if NOISY == 1
 #define ITS_COEFF 1.0     // Multiplier for number of iterations
 #else
+// TODO : Q 2.9 implement noise-resistant PSO
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 #define ITS_COEFF 2.0     // Multiplier for number of iterations
+// +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
 #endif
 
 /* Types of fitness evaluations */
@@ -36,6 +39,7 @@ int datasize;
 int robots;
 int nb;
 char label[30];
+char label2[30];
 
 /* Particle swarm optimization function                                      */
 /*                                                                           */
@@ -68,19 +72,21 @@ double* pso(int n_swarmsize, int n_nb, double lweight, double nbweight, double v
   robots = n_robots;
   nb = n_nb;
 
-  //printf("NOISY = %d\n",NOISY);
+  printf("NOISY = %d\n",NOISY);
   sprintf(label, "Iteration: 0");
   wb_supervisor_set_label(0,label,0.01,0.01,0.1,0xffffff,0,FONT);
   // Seed the random generator
-  srand(time(NULL));
+    //srand(time(NULL));
+  srand(0);
+
 
   // Setup neighborhood
   for (i = 0; i < swarmsize; i++) {
     for (j = 0; j < swarmsize; j++) {
       if (mod(i-j+nb,swarmsize) <= 2*nb)
-        neighbors[i][j] = 1;
+	neighbors[i][j] = 1;
       else
-        neighbors[i][j] = 0;
+	neighbors[i][j] = 0;
     }
   }
 
@@ -107,31 +113,29 @@ double* pso(int n_swarmsize, int n_nb, double lweight, double nbweight, double v
 #if VERBOSE == 1
   printf("Swarm initialized\n");
 #endif
-
   // Run optimization
-  for (k = 0; k < ITS_COEFF*iterations; k++) {
+  for (k = 0; k < ITS_COEFF * iterations; k++) {
 
-#if VERBOSE == 1
-    printf("Iteration %d\n",k);
-#endif
-    sprintf(label, "Iteration: %d",k+1);
+    sprintf(label, "Iteration: %d",k);
     wb_supervisor_set_label(0,label,0.01,0.01,0.1,0xffffff,0,FONT);
     // Update preferences and generate new particles
     for (i = 0; i < swarmsize; i++) {
       for (j = 0; j < datasize; j++) {
-
-      	// Adjust preferences
+        // Adjust preferences
         v[i][j] *= 0.6;
 
-      	v[i][j] += lweight*rnd()*(lbest[i][j] - swarm[i][j]) + nbweight*rnd()*(nbbest[i][j] - swarm[i][j]);
-      	swarm[i][j] += v[i][j];
+        v[i][j] += lweight*rnd()*(lbest[i][j] - swarm[i][j]) + nbweight*rnd()*(nbbest[i][j] - swarm[i][j]);
+        swarm[i][j] += v[i][j];
       }
     }
 
-    // RE-EVALUATE PERFORMANCES OF PREVIOUS BESTS
-#if NOISY == 1
-    findPerformance(lbest,lbestperf,lbestage,EVOLVE_AVG,robots,neighbors);
-#endif
+    // TODO : Q 2.9 implement noise-resistant PSO
+    // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+	 // RE-EVALUATING PERFORMANCES OF PREVIOUS BESTS
+	#if NOISY == 1
+		findPerformance(lbest,lbestperf,lbestage,EVOLVE_AVG,robots,neighbors);
+	#endif
+    // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
     // Find new performance
     findPerformance(swarm,perf,NULL,EVOLVE,robots,neighbors);
@@ -145,7 +149,7 @@ double* pso(int n_swarmsize, int n_nb, double lweight, double nbweight, double v
 #if VERBOSE == 1
     double temp[datasize];
     bestperf = bestResult(lbest,lbestperf,temp);
-    printf("%f\n",bestperf);
+    printf("Best performance found up to iteration %d: %f\n", k, bestperf);
 #endif
 
   }
@@ -156,10 +160,14 @@ double* pso(int n_swarmsize, int n_nb, double lweight, double nbweight, double v
   findPerformance(lbest,lbestperf,NULL,SELECT,robots,neighbors);
   bestperf = bestResult(lbest,lbestperf,best);
 #if VERBOSE == 1
-  printf("Best performance found\n");
+  printf("---Best performance found---\n");
   printf("Performance: %f\n",bestperf);
 #endif
 
+  sprintf(label, "Optimization process over.");
+  wb_supervisor_set_label(0,label,0.01,0.01,0.1,0xffffff,0,FONT);
+  sprintf(label2," ");
+  wb_supervisor_set_label(1,label2,0.01,0.05,0.05,0xffffff,0,FONT);
   return best;
 }
 
@@ -180,30 +188,33 @@ void findPerformance(double swarm[swarmsize][datasize], double perf[swarmsize],
 
   for (i = 0; i < swarmsize; i+=robots) {
     for (j=0;j<robots && i+j<swarmsize;j++) {
+      sprintf(label2,"Particle: %d\n", i+j);
+      wb_supervisor_set_label(1,label2,0.01,0.05,0.05,0xffffff,0,FONT);
       for (k=0;k<datasize;k++)
-	       particles[j][k] = swarm[i+j][k];
+        particles[j][k] = swarm[i+j][k];
     }
-
+    // USER MUST IMPLEMENT FITNESS FUNCTION
     if (type == EVOLVE_AVG) {
-      // Evalute current fitness
-      fitness(particles,fit,neighbors);
-      // TODO : performance as moving average of previous perf and latest fitness
-      // TODO : pay attention to age[]
-
+  	  // Evalute current fitness
+  	  fitness(particles,fit,neighbors);
+      for (j=0;j<robots && i+j<swarmsize;j++) {
+       perf[i+j] = ((age[i+j]-1.0)*perf[i+j] + fit[j])/age[i+j];
+       age[i+j]++;
+      }
     } else if (type == EVOLVE) {
       fitness(particles,fit,neighbors);
       for (j=0;j<robots && i+j<swarmsize;j++)
-        perf[i+j] = fit[j];
-    } else if (type == SELECT) {
+      	perf[i+j] = fit[j];
+      } else if (type == SELECT) {
       for (j=0;j<robots && i+j<swarmsize;j++)
-        perf[i+j] = 0.0;
+	      perf[i+j] = 0.0;
       for (k=0;k<5;k++) {
-        fitness(particles,fit,neighbors);
-        for (j=0;j<robots && i+j<swarmsize;j++)
-          perf[i+j] += fit[j];
+	      fitness(particles,fit,neighbors);
+	      for (j=0;j<robots && i+j<swarmsize;j++)
+	        perf[i+j] += fit[j];
       }
       for (j=0;j<robots && i+j<swarmsize;j++) {
-        perf[i+j] /= 5.0;
+	      perf[i+j] /= 5.0;
       }
     }
   }
@@ -292,6 +303,7 @@ double bestResult(double lbest[swarmsize][datasize], double lbestperf[swarmsize]
   for (i = 1; i < swarmsize; i++) {
     // If current performance of particle better than previous best, update previous best
     if (lbestperf[i] > perf) {
+     
       copyParticle(best,lbest[i]);
       perf = lbestperf[i];
     }

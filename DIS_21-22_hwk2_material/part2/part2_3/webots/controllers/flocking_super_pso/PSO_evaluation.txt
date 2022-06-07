@@ -1,2 +1,2 @@
 Perfomance evaluation of the best controllers found by standard PSO for each run: 
-Average Performance of 1 run: 0.101467
+Average Performance of 1 run: 0.040757

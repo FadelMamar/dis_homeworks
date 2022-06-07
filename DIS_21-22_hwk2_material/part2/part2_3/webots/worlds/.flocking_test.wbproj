@@ -1,0 +1,14 @@
+Webots Project File version R2022a
+perspectives: 000000ff00000000fd00000002000000010000037f00000306fc0200000001fb0000001400540065007800740045006400690074006f00720100000016000003060000008900ffffff00000003000007380000013cfc0100000001fb0000001a0043006f006e0073006f006c00650041006c006c0041006c006c0100000000000007380000006900ffffff000003b70000030600000001000000020000000100000008fc00000000
+simulationViewPerspectives: 000000ff000000010000000200000140000000ef0100000002010000000100
+sceneTreePerspectives: 000000ff0000000100000002000000c0000000fc0100000002010000000200
+maximizedDockId: -1
+centralWidgetVisible: 1
+orthographicViewHeight: 1
+textFiles: 0 "controllers/collective_test/collective_test.c" "controllers/flocking_super_test/flocking_super_test.c"
+consoles: Console:All:All
+renderingDevicePerspectives: epuck0:camera;1;1;0;0
+renderingDevicePerspectives: epuck1:camera;1;1;0;0
+renderingDevicePerspectives: epuck2:camera;1;1;0;0
+renderingDevicePerspectives: epuck3:camera;1;1;0;0
+renderingDevicePerspectives: epuck4:camera;1;1;0;0
