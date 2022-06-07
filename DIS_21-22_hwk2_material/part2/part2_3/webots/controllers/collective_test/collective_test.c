@@ -54,7 +54,8 @@ int initialized[FLOCK_SIZE];	// != 0 if initial positions have been received
 float migr[2];	                // Migration vector
 
 // Take the best result you have got from PSO and test it here
-double default_reynolds_weights[4] = {0.06, 0.002, 0.1, 0.05};   
+//double default_reynolds_weights[4] = {0.0533, 0.0750, 0.1025, 0.1063};   
+double default_reynolds_weights[4] = {0.0313, 0.0259, 0.2, 0.102};
 
 /*
  * Reset the robot's devices and get its ID

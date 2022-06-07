@@ -22,11 +22,11 @@
 
 //Defines
 #define TIMESTEP                 32        // Time-step of controller
-#define NUM_ROBOTS               5         // Change this for number of robots
-#define NUM_SEEDS                5        // Change this for number of seeds
+#define NUM_ROBOTS               7         // Change this for number of robots
+#define NUM_SEEDS                10        // Change this for number of seeds
 #define ARENASIZE                0.9       // (0.1 security margin)
 #define MIN_ROBOT_DIST_SQUARE    0.15*0.15 // Robot-robot safety distance
-#define MIN_SEED_DIST_SQUARE     0.1*0.1   // Robot-seed safety
+#define MIN_SEED_DIST_SQUARE     0.08*0.08 // Robot-seed safety
 #define FREE                     0         // Physical height of free seeds
 #define GRIPPED                  0.2       // Physical height of gripped seeds
 #define RAND                     ((float) rand()/RAND_MAX)
@@ -35,12 +35,12 @@
 #define SEED_RAD                 0.035     // Seed radius
 #define RELEASE_BIAS             0.5       // Angle bias for releasing seeds
 #define TO_STUCK                 20000     // Timeout for respawning robots
-#define MIN_STUCK_DIST_SQUARE    0.02*0.02 // Threshold movement for stuck robots
+#define MIN_STUCK_DIST_SQUARE    0.01*0.01 // Threshold movement for stuck robots
 #define NULL_SEED                99        // Null number for seed
 #define NULL_ROBOT               99        // Null number for robot
 #define ENB_LOG_CON              0         // Enable to see logs on console
-#define ENB_LOG_FILE             0         // Enable to see logs on file
-#define ENB_STUCK_PREV           0         // Enable the measure for stuck robots
+#define ENB_LOG_FILE             true         // Enable to see logs on file
+#define ENB_STUCK_PREV           true         // Enable the measure for stuck robots
 #define THR_ROT                  0.3       // Threshold angle for dangerous rotations
 
 // Global Variables 
@@ -56,8 +56,9 @@ typedef struct{
 
   int id; //Seed id, same as def
   int carrying_robot; // Robot id carrying the seed
-  const double *pos; // Seed poisition
-  int inside_cluster; // Seed is inside the cluster with id
+  const double *pos; // Seed position
+  int inside_cluster_of_size; // Seed is inside the cluster with id
+  int neighs[NUM_SEEDS]; // Neighbor list for the shared cluster
      
 } seed;
 
@@ -83,7 +84,7 @@ typedef struct{
 
 robot robots[NUM_ROBOTS];           // an array of robots
 seed seeds[NUM_SEEDS];              // array of seeds
-cluster clusters[NUM_SEEDS];        // array of clusters
+cluster clusters[NUM_SEEDS+1];        // array of clusters
 
 double ps_orient[8] = {1.27, 0.77, 0.0, 5.21, 4.21, 3.14159, 2.37, 1.87};
 bool all_robots_deployed = false;
@@ -91,7 +92,9 @@ bool all_seeds_deployed = false;
 bool redeploy = true;
 double NC, ACS, SBC; // metrics
 FILE *fp; // File for logs
-double default_rot[4] ={0,0,1,9};
+double default_rot[4] ={0,0,1,0};
+bool found_gripped_seed = false;
+bool found_approached_seed = false;
 
 // Distance Calculations 
 double get_dist_square(const double *pos1, const double *pos2){
@@ -122,11 +125,13 @@ void receive_emit_message_from_to_robots() {
   
        pkt = (int*)wb_receiver_get_data(receiver);
        int r = pkt[0];
-       int decision = pkt[1];
+       int query = pkt[1];
        int detected_ps = pkt[2];
+       found_gripped_seed = false;
        
-       if (decision == 1) { //Grip
-       
+       if (query == 1) { //Grip
+           
+           // Find the closest seed
            for(e=0;e<NUM_SEEDS;e++) {
            
              if(seeds[e].carrying_robot == NULL_ROBOT) {
@@ -140,21 +145,60 @@ void receive_emit_message_from_to_robots() {
                        Pos[1] = robots[r].pos[1];     // randomize y
                        wb_supervisor_field_set_sf_vec3f(seeds_translation[e],Pos);
                        
-                       robots[r].gripped_seed = e;
-                       seeds[e].carrying_robot = r;
-                       
-                       emit_message_to_robots(r,e);                                            
-                       
+                       emit_message_to_robots(r,e);
+                          
+                       found_gripped_seed = true;            
                        break;
                 }
            
               }
               
            }
-                      
+           
+           if (found_gripped_seed) {
+           //TODO
+              robots[r].gripped_seed = e;
+              seeds[e].carrying_robot = r;
+              // Initialize clusters
+              clusters[0].Nseed = NUM_SEEDS;
+              clusters[1].Nseed = 0;
+              
+              for (int c = 2; c<NUM_SEEDS+1;c++) {
+                clusters[c].Nseed = 0;
+              }
+              // local clustering algorithm.
+              for (int i=0; i<NUM_SEEDS; i++) {
+                int num_affinity = 0;
+                int first_seed = NUM_SEEDS + 1;
+                for (int j=0; j<i; j++) {
+                  double seed_dist = get_dist_square(seeds[i].pos, seeds[j].pos);
+                  if (seed_dist < (2 * SEED_RAD)*(2 * SEED_RAD)) {
+                    num_affinity ++;
+                    if (num_affinity == 1) {first_seed = j;}
+                  }
+                }
+                if (num_affinity == 0) {seeds[i].inside_cluster_of_size = i+1;}
+                else {
+                  seeds[i].inside_cluster_of_size = seeds[first_seed].inside_cluster_of_size;
+                }
+              }
+              // set up the property for clustering.
+              for (int c=0; c<NUM_SEEDS; c++) {
+                clusters[seeds[c].inside_cluster_of_size].Nseed++;
+              }
+              int seed_sum = 0;
+              for (int c=1; c<NUM_SEEDS+1; c++) {
+                seed_sum = seed_sum + clusters[c].Nseed;
+              }
+              if (seed_sum == NUM_SEEDS) {
+                printf("***total_seed_num: %d***\n", seed_sum);
+              }
+           }                     
         }
             
-        if (decision == 0) { //Release
+        if (query == 0) { //Release
+        
+          found_approached_seed = false;
         
           double yaw_diff = ps_orient[detected_ps] + robots[r].rot[3]*robots[r].rot[2] - M_PI/2 + RELEASE_BIAS;
                                   
@@ -162,16 +206,111 @@ void receive_emit_message_from_to_robots() {
           Pos[0] = robots[r].pos[0] + cos(yaw_diff) * (ROBOT_RAD + SEED_RAD);     // randomize x
           Pos[1] = robots[r].pos[1] + sin(yaw_diff) * (ROBOT_RAD + SEED_RAD);     // randomize y
           
-          int current_seed = robots[r].gripped_seed;
-          
-          wb_supervisor_field_set_sf_vec3f(seeds_translation[current_seed],Pos);
+          int released_seed_id = robots[r].gripped_seed;
+          wb_supervisor_field_set_sf_vec3f(seeds_translation[released_seed_id],Pos);
                     
           emit_message_to_robots(r,NULL_SEED);
-                   
-          seeds[current_seed].carrying_robot = NULL_ROBOT;
+                                  
+          // Find approached seed
+          for(e=0;e<NUM_SEEDS;e++) {
+           
+             if(seeds[e].carrying_robot == NULL_ROBOT) {
+               
+               double distance = get_dist_square(seeds[e].pos, robots[r].pos);
+                                                                                                                           
+               if (distance <  MIN_SEED_DIST_SQUARE) {
+               
+                 found_approached_seed = true;
+                 break;
+              
+               }
+               
+             }
+             
+          }
+                       
+          seeds[released_seed_id].carrying_robot = NULL_ROBOT;
           robots[r].gripped_seed = NULL_SEED;
- 
-        }   
+                
+          if (found_approached_seed) {
+          //TODO
+            robots[r].approached_seed = e;
+            // Initialize clusters
+            clusters[0].Nseed = NUM_SEEDS;
+            clusters[1].Nseed = 0;
+            
+            for (int c = 2; c<NUM_SEEDS+1;c++) {
+              clusters[c].Nseed = 0;
+            }
+            // local clustering algorithm.
+            for (int i=0; i<NUM_SEEDS; i++) {
+              int num_affinity = 0;
+              int first_seed = NUM_SEEDS + 1;
+              for (int j=0; j<i; j++) {
+                double seed_dist = get_dist_square(seeds[i].pos, seeds[j].pos);
+                if (seed_dist < (2 * SEED_RAD)*(2 * SEED_RAD)) {
+                  num_affinity ++;
+                  if (num_affinity == 1) {first_seed = j;}
+                }
+              }
+              if (num_affinity == 0) {seeds[i].inside_cluster_of_size = i+1;}
+              else {
+                seeds[i].inside_cluster_of_size = seeds[first_seed].inside_cluster_of_size;
+              }
+            }
+            // set up the property for clustering.
+            for (int c=0; c<NUM_SEEDS; c++) {
+              clusters[seeds[c].inside_cluster_of_size].Nseed++;
+            }
+            int seed_sum = 0;
+            for (int c=1; c<NUM_SEEDS+1; c++) {
+              seed_sum = seed_sum + clusters[c].Nseed;
+            }
+            if (seed_sum == NUM_SEEDS) {
+              printf("***total_seed_num: %d***\n", seed_sum);
+            }
+            
+            
+          } else {
+          //TODO
+            robots[r].approached_seed = NULL_SEED;
+            // Initialize clusters
+            clusters[0].Nseed = NUM_SEEDS;
+            clusters[1].Nseed = 0;
+            
+            for (int c = 2; c<NUM_SEEDS+1;c++) {
+            
+              clusters[c].Nseed = 0;
+            }
+            // local clustering algorithm.
+            for (int i=0; i<NUM_SEEDS; i++) {
+              int num_affinity = 0;
+              int first_seed = NUM_SEEDS + 1;
+              for (int j=0; j<i; j++) {
+                double seed_dist = get_dist_square(seeds[i].pos, seeds[j].pos);
+                if (seed_dist < (2 * SEED_RAD)*(2 * SEED_RAD)) {
+                  num_affinity ++;
+                  if (num_affinity == 1) {first_seed = j;}
+                }
+              }
+              if (num_affinity == 0) {seeds[i].inside_cluster_of_size = i+1;}
+              else {
+                seeds[i].inside_cluster_of_size = seeds[first_seed].inside_cluster_of_size;
+              }
+            }
+            // set up the property for clustering.
+            for (int c=0; c<NUM_SEEDS; c++) {
+              clusters[seeds[c].inside_cluster_of_size].Nseed++;
+            }
+            int seed_sum = 0;
+            for (int c=1; c<NUM_SEEDS+1; c++) {
+              seed_sum = seed_sum + clusters[c].Nseed;
+            }
+            if (seed_sum == NUM_SEEDS) {
+              printf("***total_seed_num: %d***\n", seed_sum);
+            }
+          }
+       }   
                                    
   wb_receiver_next_packet(receiver); 
 
@@ -219,6 +358,7 @@ void initialize_robots(){
     rname[6]++;
     
     robots[r].gripped_seed = NULL_SEED;
+    robots[r].id = r;
   }
 
   double distance_square = 0;     // distance between 2 robots squared
@@ -268,9 +408,10 @@ void initialize_clusters() {
 
   int c;
   
-  clusters[0].Nseed = NUM_SEEDS;
+  clusters[0].Nseed = 0;
+  clusters[1].Nseed = NUM_SEEDS;
   
-  for (c = 1; c<NUM_SEEDS;c++) {
+  for (c = 2; c<NUM_SEEDS+1;c++) {
   
     clusters[c].Nseed = 0;
   }
@@ -296,7 +437,15 @@ void initialize_seeds() {
     }
     
     seeds[e].carrying_robot = NULL_ROBOT;
-    seeds[e].inside_cluster = 1;
+    seeds[e].inside_cluster_of_size = 1;
+    seeds[e].id = e;
+    
+    for(i = 0; i<NUM_SEEDS;i++) {
+    
+      seeds[e].neighs[i] = 0;
+    
+    }
+    
     ename[1]++;
    
   }
@@ -361,17 +510,28 @@ void update_objects() {
 
 // Calculate metrics
 void calculate_metrics() {
-//TODO
-NC = 0;
-ACS = 0;
-SBC = 0;
-
+  NC = 0;
+  ACS = 0;
+  SBC = 0;
+  //TODO
+  // Calculate NC
+  // printf("Seed 0-9 in cluster: %d %d %d %d %d %d %d %d %d %d\n", seeds[0].inside_cluster_of_size, seeds[1].inside_cluster_of_size, seeds[2].inside_cluster_of_size, seeds[3].inside_cluster_of_size, seeds[4].inside_cluster_of_size, seeds[5].inside_cluster_of_size, seeds[6].inside_cluster_of_size, seeds[7].inside_cluster_of_size, seeds[8].inside_cluster_of_size, seeds[9].inside_cluster_of_size);
+  for (int i=1; i<NUM_SEEDS+1; i++) {
+    if (clusters[i].Nseed > 0) {
+        NC++;
+      }
+    if (clusters[i].Nseed > SBC) {
+      SBC = clusters[i].Nseed;
+    }
+    ACS = ACS + clusters[i].Nseed;
+  }
+  ACS = ACS / NC;
 }
 
 // Show logs if there is any
 void print_logs_console() {
-
-  printf("NC: %f, ACS %f, SBC: %f\n",NC, ACS, SBC);
+  
+  printf("Metrics: NC: %f, ACS: %f, SBC:%f\n", NC, ACS, SBC);
 
 }
 

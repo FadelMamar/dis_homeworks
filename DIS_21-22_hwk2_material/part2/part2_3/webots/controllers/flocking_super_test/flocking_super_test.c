@@ -43,6 +43,8 @@ static const double destinations[][2] = {
 };
 static int num_destination = sizeof(destinations)/sizeof(double)/2;
 int curr_dest = 0;
+double initial_rot[FLOCK_SIZE][4];
+const double *rot[FLOCK_SIZE];
 
 /**
  * Multi migration targets for single flock case
@@ -94,6 +96,11 @@ void reset(void) {
 		robs[i] = wb_supervisor_node_get_from_def(rob);
 		robs_trans[i] = wb_supervisor_node_get_field(robs[i],"translation");
 		robs_rotation[i] = wb_supervisor_node_get_field(robs[i],"rotation");
+		rot[i] = wb_supervisor_field_get_sf_rotation(wb_supervisor_node_get_field(robs[i],"rotation"));
+                      initial_rot[i][0] = rot[i][0]; initial_rot[i][1] = rot[i][1]; initial_rot[i][2] = rot[i][2]; initial_rot[i][3] = rot[i][3];
+                      initial_rot[i][3] += rand();
+
+                      wb_supervisor_field_set_sf_rotation(wb_supervisor_node_get_field(robs[i],"rotation"), initial_rot[i]);   
 	}
 }
 
